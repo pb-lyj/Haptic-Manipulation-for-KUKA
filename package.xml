@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>haptic</name>
-  <version>0.0.0</version>
+  <version>1.0.0</version>
   <description>ROS2 package for Tac3D sensor and data recording</description>
   <maintainer email="lyj6626076@gmail.com">lyj</maintainer>
   <license>Apache-2.0</license>

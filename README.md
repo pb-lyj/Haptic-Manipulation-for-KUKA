@@ -70,10 +70,10 @@ This will start the robotic arm information broadcast at the same time.
 After the robotic arm is connected and the tactile sensor is activated, you can run this file to record all the data they broadcast.
 
 ```
-ros2 run haptic dataset_recorder_launch
+ros2 run haptic dataset_recorder
 ```
 
-## Launch all of the above procedures
+## *Launch all of the above procedures
 
 1. connect the robot
 

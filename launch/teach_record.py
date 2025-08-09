@@ -22,13 +22,13 @@ def generate_launch_description():
         ),
 
         # # 启动改进的阻抗控制器（含示教功能）
-        Node(
-            package='haptic',
-            executable='admittance_with_zero_reset',
-            namespace='lbr',
-            name='admittance_with_zero_reset',
-            output='screen'
-        ),
+        # Node(
+        #     package='haptic',
+        #     executable='admittance_with_zero_reset',
+        #     namespace='lbr',
+        #     name='admittance_with_zero_reset',
+        #     output='screen'
+        # ),
 
         # 启动Launch控制的数据采集器节点
         # Node(

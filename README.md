@@ -75,18 +75,23 @@ ros2 run haptic dataset_recorder_launch
 
 ## Launch all of the above procedures
 
+1. connect the robot
+
 ```
 ros2 launch haptic teach_record.py
 ```
-If the system is functioning properly, you won't see any error, and the following will appear on the screen:
+With the hand controller, this command will connect the robotic arm in wrench mode
+- please wait for the haptic sensor to be calibrated
+- Assist the robotic arm to cope with the remaining dead weight compensation error
+
+- Using Java native impedance here, we set a high three-axis rotational impedance in the experiment in July 2025, with a certain z-axis impedance and an XY impedance of almost 0 to facilitate our on-plane jack task
+
+2. start data recording
+
 ```
-============================================================
-🚀 The data collector is up and waiting for instructions
-============================================================
-📝 Instruction Description:
-enter '1' + Enter: Start data collection
-enter '2' + Enter: Stop data collection
-enter 'q' + Enter: Quit the program
-============================================================
-⏳ Waiting for your command...
+ros2 run haptic dataset_recorder
 ```
+
+That will start data recording immediately.
+- The specific type and format of the recorded data can be viewed in `data_recorder_improved.py`.
+- The txt file contains the raw data and the timestamp when the data arrived at the host computer

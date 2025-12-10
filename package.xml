@@ -1,9 +1,9 @@
-<?xml version="1.0"?>
+<?xml version="2.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>haptic</name>
-  <version>1.0.0</version>
-  <description>ROS2 package for Tac3D sensor and data recording</description>
+  <version>2.0.0</version>
+  <description>ROS2 package using Tac3D sensor for data recording and mlp control</description>
   <maintainer email="lyj6626076@gmail.com">lyj</maintainer>
   <license>Apache-2.0</license>
 
@@ -11,7 +11,10 @@
   <depend>tutorial_interfaces</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
   <depend>lbr_fri_idl</depend>
+  <depend>geometry_msgs</depend>
+  <depend>rcl_interfaces</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

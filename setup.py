@@ -8,6 +8,14 @@ setup(
     name=package_name,
     version='0.1.0',
     packages=find_packages(exclude=['test']),
+    package_data={
+        package_name: [
+            'models/cnn_ae/*.py',
+            'models/feature_lstm/*.py',
+            'models/feature_lstm/*.pt',
+            'models/feature_lstm/*.yaml',
+        ],
+    },
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -19,6 +27,7 @@ setup(
         'numpy',
         'ruamel.yaml',
         'opencv-python',
+        'h5py',
     ],
     zip_safe=True,
     maintainer='lyj',
@@ -31,12 +40,17 @@ setup(
             'tac3d_r = haptic.tac3d_r:main',
             'tac3d_l = haptic.tac3d_l:main',
             
-            'reset = haptic.reset:main',
             'admittance_with_zero_reset = haptic.admittance_with_zero_reset:main',
             
-            'dataset_recorder = haptic.dataset_recorder_improved:main',
-            'dataset_recorder_for_launch = haptic.dataset_recorder_for_launch:main',
+            'dataset_recorder = haptic.dataset_recorder:main',
+            'dataset_recorder_h5 = haptic.dataset_recorder_h5:main',
+            
             'test_force = haptic.test_force:main',
+
+            'reset = haptic.reset:main',
+            "execute = haptic.execute:main",
+            'lstm_policy = haptic.lstm_policy:main',
+            'cartesian_controller = haptic.cartesian_controller:main',
         ],
     },
 )

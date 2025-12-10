@@ -1,3 +1,9 @@
+# ros2 topic echo /lbr/state/pose --once
+# ros2 topic pub --once /lbr/command/pose geometry_msgs/msg/Pose \
+# "{
+#   position: {x: 0.45, y: 0.0, z: 0.25},
+#   orientation: {x: 0.0, y: 1.0, z: 0.0, w: 0.0}
+# }"
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
@@ -20,6 +26,10 @@ class LBRController(Node):
             QoSProfile(depth=10))
         self.current_joint_position = None
         self.target_joint_position = [0.0, 0.349, 0.0, -1.222, 0.0, 1.571, 0.0]
+        # - Translation: [0.544, -0.000, 0.629]
+        # - Rotation: in Quaternion (xyzw) [-0.000, 1.000, -0.000, -0.000]
+        # - Rotation: in RPY (radian) [-3.142, -0.000, -3.142]
+        # - Rotation: in RPY (degree) [-180.000, -0.023, -180.000]
         self.rate = 100  # 降低发布速率为10Hz，可以根据具体情况调整
 
     def current_joint_position_callback(self, msg):

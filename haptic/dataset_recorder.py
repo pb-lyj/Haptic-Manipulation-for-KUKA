@@ -2,25 +2,16 @@ import os
 import rclpy
 from rclpy.node import Node
 from lbr_fri_idl.msg import LBRWrenchCommand, LBRState
-from sensor_msgs.msg import JointState
-from tutorial_interfaces.msg import Array3, Cloud
-from std_msgs.msg import Float32
-from datetime import datetime
-import csv
-import threading
-
-import os
-import rclpy
-from rclpy.node import Node
-from lbr_fri_idl.msg import LBRWrenchCommand, LBRState
-from sensor_msgs.msg import JointState
-from tutorial_interfaces.msg import Array3, Cloud
+from sensor_msgs.msg import JointState, Image
+from tutorial_interfaces.msg import Array3
 from std_msgs.msg import Float32
 from datetime import datetime
 import csv
 import threading
 import uuid
 import time
+from cv_bridge import CvBridge
+import numpy as np
 
 class DatasetRecorder(Node):
     """简单的数据记录器，记录各个话题的数据和到达时间戳"""
@@ -43,6 +34,9 @@ class DatasetRecorder(Node):
         # 线程锁，确保文件写入安全
         self.file_lock = threading.Lock()
         
+        # CV Bridge用于图像转换
+        self.bridge = CvBridge()
+        
         # 话题类型定义
         self.topic_types = {
             # 机器人相关话题
@@ -50,19 +44,19 @@ class DatasetRecorder(Node):
             '/lbr/state': 'lbr_fri_idl/msg/LBRState',
             '/lbr/joint_states': 'sensor_msgs/msg/JointState',
             
-            # Tac3D传感器话题 - 根据修改后的tac3d_r和tac3d_l更新
-            '/positions_r': 'tutorial_interfaces/msg/Cloud',
-            '/displacements_r': 'tutorial_interfaces/msg/Cloud',
-            '/forces_r': 'tutorial_interfaces/msg/Cloud',  # 修改为Cloud类型
-            '/resultant_force_r': 'tutorial_interfaces/msg/Array3',  # 修改为Array3类型
-            '/resultant_moment_r': 'tutorial_interfaces/msg/Array3',  # 修改为Array3类型
+            # Tac3D传感器话题 - 使用标准Image消息类型
+            '/positions_r': 'tutorial_interfaces/msg/Image',
+            '/displacements_r': 'tutorial_interfaces/msg/Image',
+            '/forces_r_image': 'sensor_msgs/msg/Image',
+            '/resultant_force_r': 'tutorial_interfaces/msg/Array3',
+            '/resultant_moment_r': 'tutorial_interfaces/msg/Array3',
             '/index_r': 'std_msgs/msg/Float32',
             
-            '/positions_l': 'tutorial_interfaces/msg/Cloud',
-            '/displacements_l': 'tutorial_interfaces/msg/Cloud',
-            '/forces_l': 'tutorial_interfaces/msg/Cloud',  # 修改为Cloud类型
-            '/resultant_force_l': 'tutorial_interfaces/msg/Array3',  # 修改为Array3类型
-            '/resultant_moment_l': 'tutorial_interfaces/msg/Array3',  # 修改为Array3类型
+            '/positions_l': 'tutorial_interfaces/msg/Image',
+            '/displacements_l': 'tutorial_interfaces/msg/Image',
+            '/forces_l_image': 'sensor_msgs/msg/Image',
+            '/resultant_force_l': 'tutorial_interfaces/msg/Array3',
+            '/resultant_moment_l': 'tutorial_interfaces/msg/Array3',
             '/index_l': 'std_msgs/msg/Float32'
         }
         
@@ -108,7 +102,10 @@ class DatasetRecorder(Node):
             topic_type = self.topic_types[topic_name]
             
             with self.file_lock:
-                if 'Cloud' in topic_type:
+                if 'Image' in topic_type:
+                    # Image类型写入txt格式
+                    self.write_image_data(topic_name, msg, receive_time, header_time)
+                elif 'Cloud' in topic_type:
                     # Cloud类型写入txt格式
                     self.write_cloud_data(topic_name, msg, receive_time, header_time)
                 elif 'Array3' in topic_type:
@@ -328,55 +325,51 @@ class DatasetRecorder(Node):
         except Exception as e:
             return f"extract_error: {str(e)}"
     
-    def write_cloud_data(self, topic_name, msg, receive_time, header_time):
-        """写入Cloud类型的数据到txt文件 - 20*20*3点阵，时间戳+XYZ分别换行+*号分隔"""
+    def write_image_data(self, topic_name, msg, receive_time, header_time):
+        """写入Image类型的数据到txt文件 - 从32FC3图像提取20*20*3数据"""
         try:
             file_handle = self.data_files[topic_name]
             
             # 写入时间戳信息
             file_handle.write(f"{receive_time}\n")
             
-            # 处理Cloud消息结构 - 每个row包含400个点的坐标
-            x_data = []
-            y_data = []
-            z_data = []
-            
-            if hasattr(msg, 'row1') and hasattr(msg, 'row2') and hasattr(msg, 'row3'):
-                # 处理X数据 (row1) - 400个X坐标
-                if msg.row1 is not None:
-                    x_raw = list(msg.row1)[:400]  # 取前400个点
-                    x_data = self.clean_float_array(x_raw, 400)
+            try:
+                if msg.encoding == "32FC3":
+                    # 将Image消息转换为numpy数组
+                    force_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="32FC3")
+                    # force_image shape: (20, 20, 3)
+                    
+                    # 提取XYZ数据
+                    x_data = force_image[:, :, 0].flatten()  # X通道
+                    y_data = force_image[:, :, 1].flatten()  # Y通道  
+                    z_data = force_image[:, :, 2].flatten()  # Z通道
+                    
+                    # 清理数据
+                    x_clean = self.clean_float_array(x_data, 400)
+                    y_clean = self.clean_float_array(y_data, 400)
+                    z_clean = self.clean_float_array(z_data, 400)
+                    
+                    # 写入XYZ三行数据
+                    x_str = ' '.join(f"{value:.6f}" for value in x_clean)
+                    file_handle.write(f"{x_str}\n")
+                    
+                    y_str = ' '.join(f"{value:.6f}" for value in y_clean)
+                    file_handle.write(f"{y_str}\n")
+                    
+                    z_str = ' '.join(f"{value:.6f}" for value in z_clean)
+                    file_handle.write(f"{z_str}\n")
                 else:
-                    x_data = [-99.0] * 400
-                
-                # 处理Y数据 (row2) - 400个Y坐标
-                if msg.row2 is not None:
-                    y_raw = list(msg.row2)[:400]  # 取前400个点
-                    y_data = self.clean_float_array(y_raw, 400)
-                else:
-                    y_data = [-99.0] * 400
-                
-                # 处理Z数据 (row3) - 400个Z坐标
-                if msg.row3 is not None:
-                    z_raw = list(msg.row3)[:400]  # 取前400个点
-                    z_data = self.clean_float_array(z_raw, 400)
-                else:
-                    z_data = [-99.0] * 400
-            else:
-                # 如果没有有效数据，创建三组400个-99
-                x_data = [-99.0] * 400
-                y_data = [-99.0] * 400
-                z_data = [-99.0] * 400
-            
-            # 写入XYZ三行数据，每行400个点，用空格分隔
-            x_str = ' '.join(f"{value:.6f}" for value in x_data)
-            file_handle.write(f"{x_str}\n")
-            
-            y_str = ' '.join(f"{value:.6f}" for value in y_data)
-            file_handle.write(f"{y_str}\n")
-            
-            z_str = ' '.join(f"{value:.6f}" for value in z_data)
-            file_handle.write(f"{z_str}\n")
+                    # 不支持的编码，写入NaN数据
+                    nan_line = ' '.join(["nan"] * 400)
+                    file_handle.write(f"{nan_line}\n")
+                    file_handle.write(f"{nan_line}\n")
+                    file_handle.write(f"{nan_line}\n")
+            except Exception as e:
+                # 转换失败，写入NaN数据
+                nan_line = ' '.join(["nan"] * 400)
+                file_handle.write(f"{nan_line}\n")
+                file_handle.write(f"{nan_line}\n")
+                file_handle.write(f"{nan_line}\n")
             
             # 写入*号分隔符
             file_handle.write("*\n")
@@ -386,13 +379,80 @@ class DatasetRecorder(Node):
             # 出错时写入错误信息
             file_handle = self.data_files[topic_name]
             file_handle.write(f"{receive_time}\n")
-            # 写入400个-99的XYZ数据
-            error_line = ' '.join(["-99.000000"] * 400)
-            file_handle.write(f"{error_line}\n")
-            file_handle.write(f"{error_line}\n") 
-            file_handle.write(f"{error_line}\n")
+            # 写入400个NaN的XYZ数据
+            nan_line = ' '.join(["nan"] * 400)
+            file_handle.write(f"{nan_line}\n")
+            file_handle.write(f"{nan_line}\n")
+            file_handle.write(f"{nan_line}\n")
             file_handle.write("*\n")
             file_handle.flush()
+
+    def write_cloud_data(self, topic_name, msg, receive_time, header_time):
+        """写入Cloud类型的数据到txt文件 - 20*20*3点阵，时间戳+XYZ分别换行+*号分隔"""
+        return TypeError("Cloud data writing is deprecated in favor of Image data.")
+        # try:
+        #     file_handle = self.data_files[topic_name]
+            
+        #     # 写入时间戳信息
+        #     file_handle.write(f"{receive_time}\n")
+            
+        #     # 处理Cloud消息结构 - 每个row包含400个点的坐标
+        #     x_data = []
+        #     y_data = []
+        #     z_data = []
+            
+        #     if hasattr(msg, 'row1') and hasattr(msg, 'row2') and hasattr(msg, 'row3'):
+        #         # 处理X数据 (row1) - 400个X坐标
+        #         if msg.row1 is not None:
+        #             x_raw = list(msg.row1)[:400]  # 取前400个点
+        #             x_data = self.clean_float_array(x_raw, 400)
+        #         else:
+        #             x_data = [-99.0] * 400
+                
+        #         # 处理Y数据 (row2) - 400个Y坐标
+        #         if msg.row2 is not None:
+        #             y_raw = list(msg.row2)[:400]  # 取前400个点
+        #             y_data = self.clean_float_array(y_raw, 400)
+        #         else:
+        #             y_data = [-99.0] * 400
+                
+        #         # 处理Z数据 (row3) - 400个Z坐标
+        #         if msg.row3 is not None:
+        #             z_raw = list(msg.row3)[:400]  # 取前400个点
+        #             z_data = self.clean_float_array(z_raw, 400)
+        #         else:
+        #             z_data = [-99.0] * 400
+        #     else:
+        #         # 如果没有有效数据，创建三组400个-99
+        #         x_data = [-99.0] * 400
+        #         y_data = [-99.0] * 400
+        #         z_data = [-99.0] * 400
+            
+        #     # 写入XYZ三行数据，每行400个点，用空格分隔
+        #     x_str = ' '.join(f"{value:.6f}" for value in x_data)
+        #     file_handle.write(f"{x_str}\n")
+            
+        #     y_str = ' '.join(f"{value:.6f}" for value in y_data)
+        #     file_handle.write(f"{y_str}\n")
+            
+        #     z_str = ' '.join(f"{value:.6f}" for value in z_data)
+        #     file_handle.write(f"{z_str}\n")
+            
+        #     # 写入*号分隔符
+        #     file_handle.write("*\n")
+        #     file_handle.flush()
+            
+        # except Exception as e:
+        #     # 出错时写入错误信息
+        #     file_handle = self.data_files[topic_name]
+        #     file_handle.write(f"{receive_time}\n")
+        #     # 写入400个-99的XYZ数据
+        #     error_line = ' '.join(["-99.000000"] * 400)
+        #     file_handle.write(f"{error_line}\n")
+        #     file_handle.write(f"{error_line}\n") 
+        #     file_handle.write(f"{error_line}\n")
+        #     file_handle.write("*\n")
+        #     file_handle.flush()
     
     def clean_single_float(self, value):
         """清理单个浮点数，处理NaN和无穷大等奇异值"""
@@ -450,25 +510,7 @@ class DatasetRecorder(Node):
             f.write("=" * 50 + "\n\n")
             f.write(f"采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"数据目录: {self.unique_dir}\n")
-            f.write(f"监控话题数: {len(self.topic_types)}\n\n")
-            
-            f.write("话题列表和数据格式:\n")
-            for topic_name, topic_type in self.topic_types.items():
-                safe_name = topic_name.replace('/', '_').replace(':', '_')
-                if 'Cloud' in topic_type:
-                    f.write(f"  - {topic_name} -> {safe_name}.txt (Cloud数据: 时间戳+400个点的XYZ坐标，每组以*分隔)\n")
-                elif 'Array3' in topic_type:
-                    f.write(f"  - {topic_name} -> {safe_name}.txt (Array3数据: 时间戳+X+Y+Z，每组以30个*分隔)\n")
-                elif 'LBRWrenchCommand' in topic_type:
-                    f.write(f"  - {topic_name} -> {safe_name}.txt (Wrench数据: 时间戳+7个关节位置+换行+6个力/力矩值，每组以30个*分隔)\n")
-                else:
-                    f.write(f"  - {topic_name} -> {safe_name}.txt (其他数据: 时间戳+数据值，每组以30个*分隔)\n")
-            
-            f.write(f"\n数据格式说明:\n")
-            f.write(f"- Cloud数据: 时间戳 换行 400个X坐标(空格分隔) 换行 400个Y坐标 换行 400个Z坐标 换行 * 换行\n")
-            f.write(f"- Array3数据: 时间戳 换行 X 换行 Y 换行 Z 换行 30个* 换行\n")
-            f.write(f"- Wrench数据: 时间戳 换行 7个关节位置(每行一个) 换行 换行 6个力/力矩值(每行一个) 换行 30个* 换行\n")
-            f.write(f"- 其他数据: 时间戳 换行 数据值(每行一个) 换行 30个* 换行\n")
+            f.write(f"监控话题数: {len(self.topic_types)}\n\n")     
             f.write(f"- 所有非法数据(NaN, 无穷大, 绝对值>1e10)记录为-99\n")
         
         self.get_logger().info(f"摘要已生成: {summary_file}")

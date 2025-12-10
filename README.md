@@ -20,24 +20,66 @@ Its main dependencies include:
 	https://github.com/lbr-stack/lbr_fri_ros2_stack
 
 # Function
-## Robotic arm movement
-- Connect KUKA
-	- https://lbr-stack.readthedocs.io/en/latest/lbr_fri_ros2_stack/lbr_demos/lbr_demos_advanced_py/doc/lbr_demos_advanced_py.html
+## Connect KUKA
+
+reference:https://lbr-stack.readthedocs.io/en/latest/lbr_fri_ros2_stack/lbr_demos/lbr_demos_advanced_py/doc/lbr_demos_advanced_py.html
+
+1. control with human (dataset record)
+
+Smart PAD(Hardware Admittance):
+```
+10 -> 172.31.1.151 	-> JOINT_IMPEDANCE_CONTROL -> POSITION
+			-> ###_IMPEDANCE_CONTROL
+		# depend on do you need impedance
+```
+
+```
+ros2 launch lbr_bringup hardware.launch.py \
+    ctrl:=admittance_controller \
+    model:=iiwa14 # [iiwa7, iiwa14, med7, med14]
+```
+
+:red_circle: Executing this command may cause the robotic arm to enter impedance mode immediately, you need to control its Initial posture.
+
+This will start the robotic arm information broadcast at the same time.
+
+2. control with program (joint position or cartesian)
+
+Smart PAD:
+```
+10 -> 172.31.1.151 	-> POSITION_CONTROL -> POSITION
+```
+
 ```
 	ros2 launch lbr_bringup hardware.launch.py \
     ctrl:=lbr_joint_position_command_controller \
-    model:=iiwa14 # [iiwa7, iiwa14, med7, med14]
+    model:=iiwa14
 ```
+
+- It will lead to the joint position control mode, if you want to control in Cartesian mode, please run the following code in another terminal:
+
 ```
-ros2 run lbr_demos_advanced_py admittance_control --ros-args   -r __ns:=/lbr   --params-file $(ros2 pkg prefix lbr_demos_advanced_py)/share/lbr_demos_advanced_py/config/admittance_control.yaml
+ros2 run lbr_demos_advanced_cpp pose_control --ros-args \
+    -r __ns:=/lbr
 ```
-:red_circle: Executing this command may cause the robotic arm to enter impedance mode
-This will start the robotic arm information broadcast at the same time.
+
+
+## Robotic arm movement
 
 - Moving the robotic arm to its original position
 
 ```
 	ros2 run haptic reset
+```
+
+- Using an XYZ incremental motion robotic arm (keeping the end effector vertically downward)
+
+```
+ros2 run haptic cartesian_controller  # Start the interpolation controller
+```
+
+```
+./src/haptic/haptic down.sh X Y Z  # Increment(m)
 ```
 
 ## Tac3D Sensor
@@ -95,3 +137,8 @@ ros2 run haptic dataset_recorder
 That will start data recording immediately.
 - The specific type and format of the recorded data can be viewed in `data_recorder_improved.py`.
 - The txt file contains the raw data and the timestamp when the data arrived at the host computer
+
+获取末端状态：
+```
+ros2 run tf2_ros tf2_echo world lbr_link_ee
+```

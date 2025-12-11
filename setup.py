@@ -11,6 +11,7 @@ setup(
     package_data={
         package_name: [
             'models/cnn_ae/*.py',
+            'models/cnn_ae/*.pt',
             'models/feature_lstm/*.py',
             'models/feature_lstm/*.pt',
             'models/feature_lstm/*.yaml',
@@ -49,8 +50,10 @@ setup(
 
             'reset = haptic.reset:main',
             "execute = haptic.execute:main",
-            'lstm_policy = haptic.lstm_policy:main',
+            'lstm = haptic.lstm_policy:main',
             'cartesian_controller = haptic.cartesian_controller:main',
+            'lstm_test = haptic.lstm_test:main',
+            'kb_c = haptic.keyboard_control:main',
         ],
     },
 )

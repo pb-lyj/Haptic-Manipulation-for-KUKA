@@ -19,19 +19,19 @@ class CartesianControllerNode(Node):
         self.current_pose = None
         self.target_pose = None
         self.is_init = False
+        self.has_target = False  # 跟踪是否收到过目标命令
         
         # 插值参数（参考pose_planning）
         self.declare_parameter('max_step_size', 0.005)  # 每步最大移动距离 (m)
         self.declare_parameter('control_rate', 100.0)   # 控制频率 (Hz)
         
         # 工作空间限制（KUKA iiwa14实际工作空间）
-        # 最大到达半径: 1.306m, 基座高度: 0.1475m
-        self.declare_parameter('workspace_x_min', -0.85)  # 左侧限制
-        self.declare_parameter('workspace_x_max', 0.85)   # 右侧限制
-        self.declare_parameter('workspace_y_min', -0.85)  # 前侧限制
-        self.declare_parameter('workspace_y_max', 0.85)   # 后侧限制
-        self.declare_parameter('workspace_z_min', 0.15)   # 接近地面（略高于基座）
-        self.declare_parameter('workspace_z_max', 1.30)   # 最大高度（略低于理论值）
+        self.declare_parameter('workspace_x_min', -0.85)
+        self.declare_parameter('workspace_x_max', 0.85)
+        self.declare_parameter('workspace_y_min', -0.85)
+        self.declare_parameter('workspace_y_max', 0.85)
+        self.declare_parameter('workspace_z_min', 0.15)
+        self.declare_parameter('workspace_z_max', 1.30)
         
         self.max_step_size = self.get_parameter('max_step_size').value
         self.control_rate = self.get_parameter('control_rate').value
@@ -61,12 +61,12 @@ class CartesianControllerNode(Node):
         self.get_logger().info("笛卡尔控制器节点启动")
         self.get_logger().info(f"控制频率: {self.control_rate}Hz, 最大步长: {self.max_step_size}m")
         self.get_logger().info(f"插值密度: {1.0/self.max_step_size:.0f}点/米, 时间步: {1000.0/self.control_rate:.1f}ms")
+        self.get_logger().info("⚠️  等待 /ab_action 命令才会开始控制")
     
     def pose_callback(self, msg):
         """当前位姿回调 - 用于初始化和插值计算"""
         if not self.is_init:
             self.current_pose = msg
-            self.target_pose = msg  # 初始目标=当前位置
             self.is_init = True
             self.get_logger().info(
                 f"初始位姿: [{msg.position.x:.3f}, {msg.position.y:.3f}, {msg.position.z:.3f}]")
@@ -81,10 +81,19 @@ class CartesianControllerNode(Node):
         # 工作空间安全检查
         target_clipped = self._clip_to_workspace(msg)
         self.target_pose = target_clipped
+        
+        # ✅ 标记已收到目标
+        if not self.has_target:
+            self.has_target = True
+            self.get_logger().info("✅ 收到第一个目标命令，开始控制")
     
     def control_callback(self):
         """控制循环 - 线性插值朝目标移动（位置+姿态）"""
-        if not self.is_init or self.current_pose is None or self.target_pose is None:
+        # ✅ 关键检查：没有收到目标就不发布任何命令
+        if not self.is_init or not self.has_target:
+            return
+        
+        if self.current_pose is None or self.target_pose is None:
             return
         
         # 提取当前位姿和目标位姿的7维向量 [x, y, z, qx, qy, qz, qw]
@@ -112,7 +121,7 @@ class CartesianControllerNode(Node):
         position_distance = np.linalg.norm(delta[:3])
         
         # 如果已经到达目标，不发布命令
-        if position_distance < 1e-6:
+        if position_distance < 1e-5:
             return
         
         # 线性插值：每步最多移动max_step_size
@@ -172,14 +181,16 @@ class CartesianControllerNode(Node):
         super().destroy_node()
 
 
-def main(args=None):
-    rclpy.init(args=args)
-    
+def main():
+    """主函数"""
     print("=== 笛卡尔控制器节点 ===")
     print("订阅: /ab_action (Pose) - LSTM策略输出")
     print("订阅: /lbr/state/pose (Pose) - 当前位姿")
     print("发布: /lbr/command/pose (Pose) - 插值后的位姿命令")
+    print("⚠️  只有在收到 /ab_action 后才会发布控制命令")
     print()
+    
+    rclpy.init()
     
     node = None
     try:
@@ -194,6 +205,8 @@ def main(args=None):
         print("\n收到停止信号...")
     except Exception as e:
         print(f"\n运行时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if node:
             try:

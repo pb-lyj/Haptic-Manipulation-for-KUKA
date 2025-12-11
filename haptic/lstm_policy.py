@@ -76,7 +76,7 @@ class LSTMPolicyNode(Node):
         self.target_orientation = Quaternion(x=0.0, y=1.0, z=0.0, w=0.0)
         
         # 增量放大因子 (临时调试用)
-        self.delta_scale_x = 2.0  # X方向放大倍数
+        self.delta_scale_x = 1.0  # X方向放大倍数
         self.delta_scale_y = 2.0  # Y方向放大倍数
         self.delta_scale_z = 1.0  # Z方向放大倍数
         

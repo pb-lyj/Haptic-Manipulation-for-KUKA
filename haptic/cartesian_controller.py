@@ -1,11 +1,11 @@
 """
 笛卡尔控制器节点 - 订阅ab_action并插值发布到pose_control
-接收来自LSTM策略的位姿命令，进行线性插值和安全限制后发布
+接收来自policy的 绝对 位姿命令，进行线性插值和安全限制后发布
 """
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Vector3
 import numpy as np
 
 
@@ -21,16 +21,36 @@ class CartesianControllerNode(Node):
         self.is_init = False
         self.has_target = False  # 跟踪是否收到过目标命令
         
+        # 力传感器数据
+        self.force_l = None
+        self.force_r = None
+        self.force_threshold = {
+            'x': 9.0,  # X方向力阈值 (N)
+            'y': 9.0,  # Y方向力阈值 (N)
+            'z': 16.0   # Z方向力阈值 (N)
+        }
+        
+        # 力矩传感器数据
+        self.moment_l = None
+        self.moment_r = None
+        self.moment_threshold = {
+            'x': [-40,  40.0],  # X方向力矩阈值 [下限, 上限] (N·m)
+            'y': [-85, 40.0],  # Y方向力矩阈值 [下限, 上限] (N·m)
+            'z': [-40, 40]   # Z方向力矩阈值 [下限, 上限] (N·m)
+        }
+        
+        self.is_force_exceeded = False  # 力/力矩超限标志
+        
         # 插值参数（参考pose_planning）
-        self.declare_parameter('max_step_size', 0.005)  # 每步最大移动距离 (m)
+        self.declare_parameter('max_step_size', 0.002)  # 每步最大移动距离 (m)
         self.declare_parameter('control_rate', 100.0)   # 控制频率 (Hz)
         
         # 工作空间限制（KUKA iiwa14实际工作空间）
-        self.declare_parameter('workspace_x_min', -0.85)
-        self.declare_parameter('workspace_x_max', 0.85)
+        self.declare_parameter('workspace_x_min', 0.40)
+        self.declare_parameter('workspace_x_max', 0.80)
         self.declare_parameter('workspace_y_min', -0.85)
         self.declare_parameter('workspace_y_max', 0.85)
-        self.declare_parameter('workspace_z_min', 0.15)
+        self.declare_parameter('workspace_z_min', 0.246)
         self.declare_parameter('workspace_z_max', 1.30)
         
         self.max_step_size = self.get_parameter('max_step_size').value
@@ -44,13 +64,25 @@ class CartesianControllerNode(Node):
                   self.get_parameter('workspace_z_max').value],
         }
         
-        # 订阅ab_action（来自lstm_policy）
+        # 订阅ab_action（来自policy）
         self.action_sub = self.create_subscription(
             Pose, '/ab_action', self.action_callback, 10)
         
         # 订阅当前位姿（用于插值）
         self.pose_sub = self.create_subscription(
             Pose, '/lbr/state/pose', self.pose_callback, 10)
+        
+        # 订阅力传感器数据
+        self.force_l_sub = self.create_subscription(
+            Vector3, '/resultant_force_l', self.force_l_callback, 10)
+        self.force_r_sub = self.create_subscription(
+            Vector3, '/resultant_force_r', self.force_r_callback, 10)
+        
+        # 订阅力矩传感器数据
+        self.moment_l_sub = self.create_subscription(
+            Vector3, '/resultant_moment_l', self.moment_l_callback, 10)
+        self.moment_r_sub = self.create_subscription(
+            Vector3, '/resultant_moment_r', self.moment_r_callback, 10)
         
         # 发布位姿命令
         self.pose_pub = self.create_publisher(Pose, '/lbr/command/pose', 10)
@@ -73,6 +105,103 @@ class CartesianControllerNode(Node):
         else:
             self.current_pose = msg
     
+    def force_l_callback(self, msg):
+        """左侧力传感器回调"""
+        self.force_l = msg
+        self._check_force_limits()
+    
+    def force_r_callback(self, msg):
+        """右侧力传感器回调"""
+        self.force_r = msg
+        self._check_force_limits()
+    
+    def moment_l_callback(self, msg):
+        """左侧力矩传感器回调"""
+        self.moment_l = msg
+        self._check_force_limits()
+    
+    def moment_r_callback(self, msg):
+        """右侧力矩传感器回调"""
+        self.moment_r = msg
+        self._check_force_limits()
+    
+    def _check_force_limits(self):
+        """检查力和力矩是否超过阈值"""
+        # 等待所有传感器数据就绪
+        if (self.force_l is None or self.force_r is None or 
+            self.moment_l is None or self.moment_r is None):
+            return
+        
+        # 检查所有力分量（使用各方向独立阈值）
+        forces_to_check = [
+            ('force_left_x', self.force_l.x, 'x'),
+            ('force_left_y', self.force_l.y, 'y'),
+            ('force_left_z', self.force_l.z, 'z'),
+            ('force_right_x', self.force_r.x, 'x'),
+            ('force_right_y', self.force_r.y, 'y'),
+            ('force_right_z', self.force_r.z, 'z'),
+        ]
+        
+        exceeded = False
+        exceeded_info = None
+        
+        # 检查力
+        for name, value, axis in forces_to_check:
+            threshold = self.force_threshold[axis]
+            if abs(value) > threshold:
+                if not self.is_force_exceeded:  # 只在首次超限时记录
+                    exceeded_info = (name, value, threshold, '力')
+                exceeded = True
+                break
+        
+        # 检查力矩（使用范围阈值 [下限, 上限]）
+        if not exceeded:
+            moments_to_check = [
+                ('moment_left_x', self.moment_l.x, 'x'),
+                ('moment_left_y', self.moment_l.y, 'y'),
+                ('moment_left_z', self.moment_l.z, 'z'),
+                ('moment_right_x', self.moment_r.x, 'x'),
+                ('moment_right_y', self.moment_r.y, 'y'),
+                ('moment_right_z', self.moment_r.z, 'z'),
+            ]
+            
+            for name, value, axis in moments_to_check:
+                threshold = self.moment_threshold[axis]
+                # 检查是否超出 [下限, 上限] 范围
+                if isinstance(threshold, list):
+                    lower_limit, upper_limit = threshold[0], threshold[1]
+                    if value < lower_limit or value > upper_limit:
+                        if not self.is_force_exceeded:  # 只在首次超限时记录
+                            if value < lower_limit:
+                                exceeded_info = (name, value, f"< {lower_limit}", '力矩')
+                            else:
+                                exceeded_info = (name, value, f"> {upper_limit}", '力矩')
+                        exceeded = True
+                        break
+                else:
+                    # 如果是单一值，使用绝对值比较
+                    if abs(value) > threshold:
+                        if not self.is_force_exceeded:
+                            exceeded_info = (name, value, threshold, '力矩')
+                        exceeded = True
+                        break
+        
+        # 更新状态并记录日志
+        if exceeded and not self.is_force_exceeded:
+            self.is_force_exceeded = True
+            if exceeded_info:
+                name, value, threshold, sensor_type = exceeded_info
+                # threshold 可能是数值或字符串（如 "< -20" 或 "> 5.0"）
+                if isinstance(threshold, str):
+                    self.get_logger().error(
+                        f"⚠️  {sensor_type}超限！{name}={value:.3f} {threshold} - 停止运动")
+                else:
+                    self.get_logger().error(
+                        f"⚠️  {sensor_type}超限！{name}={value:.3f} > {threshold} - 停止运动")
+        elif not exceeded and self.is_force_exceeded:
+            self.is_force_exceeded = False
+            self.get_logger().info("✅ 力/力矩恢复正常，恢复运动")
+    
     def action_callback(self, msg):
         """接收新的目标位姿（来自lstm_policy的ab_action）"""
         if not self.is_init:
@@ -91,6 +220,10 @@ class CartesianControllerNode(Node):
         """控制循环 - 线性插值朝目标移动（位置+姿态）"""
         # ✅ 关键检查：没有收到目标就不发布任何命令
         if not self.is_init or not self.has_target:
+            return
+        
+        # ⚠️ 安全检查：如果力超限，停止运动
+        if self.is_force_exceeded:
             return
         
         if self.current_pose is None or self.target_pose is None:

@@ -7,6 +7,9 @@ import socket
 import threading
 import cv2
 
+
+PYTAC3D_VERSION = '3.3.0'
+
 class UDP_Manager:
     def __init__(self, callback, isServer = False, ip = '', port = 8083, frequency = 50, inet = 4):
         self.callback = callback
@@ -23,9 +26,6 @@ class UDP_Manager:
         self.port = port
         self.addr = (self.ip, self.port)
         self.running = False
-
-        # self.serialNum = 0
-        # self.recvPools = {} #{'IP:PORT': [{serialNum:[data..., recvNum, packetNum, timestamp]}]}
 
     def start(self):
         if self.inet == 4:
@@ -76,7 +76,12 @@ class UDP_Manager:
 
     def close(self):
         self.running = False
+        self.sockUDP.close()
 
+class CallbackThread:
+    def __init__(self):
+        pass
+    
 class Sensor:
     def __init__(self, recvCallback = None, port = 9988, maxQSize = 5, callbackParam = None):
         '''
@@ -110,7 +115,6 @@ class Sensor:
         self.frame = None
         
     def _recvCallback_UDP(self, data, addr):
-        
         serialNum, pktNum, pktCount = struct.unpack('=IHH', data[0:8])
         currBuffer = self._recvBuffer.get(serialNum)
         if currBuffer is None:
@@ -128,6 +132,7 @@ class Sensor:
                     if initializeProgress != 100:
                         return
             except:
+                print('err')
                 return
             self.frame = frame
             self._fromAddrMap[frame['SN']] = addr
@@ -145,15 +150,21 @@ class Sensor:
             self._count = 0
         
     def _decodeFrame(self, headBytes, dataBytes):
-        #print(headBytes)
-        #print(len(dataBytes))
-        #print(headBytes.decode('ascii'))
         head = self._yaml.load(headBytes.decode('ascii'))
         frame = {}
         frame['index'] = head['index']
         frame['SN'] = head['SN']
         frame['sendTimestamp'] = head['timestamp']
         frame['recvTimestamp'] = time.time() - self._startTime
+
+        message = head.get('msg')
+        if not message is None:  # 兼容3.3.0之前的版本
+            if message != '':
+                print('[{}] {}'.format(frame['SN'], message))
+        else:
+            message = ''
+        frame['message'] = message
+        
         for item in head['data']:
             dataType = item['type']
             if dataType == 'mat':
@@ -178,14 +189,13 @@ class Sensor:
                 frame[item['name']] = cv2.imdecode(np.frombuffer(dataBytes[offset:offset+length], np.uint8), cv2.IMREAD_ANYCOLOR)
         return frame
         
-    def _cleanBuffer(self, timeout = 5):
+    def _cleanBuffer(self, timeout = 1.0):
         currTime = time.time()
         delList = []
         for item in self._recvBuffer.items():
             if currTime - item[1][0] > timeout:
                 delList.append(item[0])
         for item in delList:
-            #print(self._recvBuffer[item][0:3])
             del self._recvBuffer[item]
         
     def getFrame(self):
@@ -265,71 +275,4 @@ class Sensor:
             self._UDP.send(b'$Q', addr)
         else:
             print("Quit failed! (sensor %s is not connected)" % SN)
-
-if __name__ == '__main__':
-    SN = ''
-    idx = -1
-    sendTimestamp = 0.0
-    recvTimestamp = 0.0
-
-    P, D, F, Fr, Mr = None, None, None, None, None
-    
-    def Tac3DRecvCallback(frame, param):
-        global SN, idx, sendTimestamp, recvTimestamp, P, D, F, Fr, Mr
-        # 获取SN
-        SN = frame['SN']
-        
-        # 获取帧序号
-        idx = frame['index']
-        
-        # 获取时间戳
-        sendTimestamp = frame['sendTimestamp']
-        recvTimestamp = frame['recvTimestamp']
-
-        # 获取标志点三维形貌
-        # P矩阵为400行3列，400行分别对应400个标志点，3列分别为各标志点的x，y和z坐标
-        P = frame.get('3D_Positions')
-
-        # 获取标志点三维位移场
-        # D矩阵为400行3列，400行分别对应400个标志点，3列分别为各标志点的x，y和z位移
-        D = frame.get('3D_Displacements')
-
-        # 获取三维分布力
-        # F矩阵为400行3列，400行分别对应400个标志点，3列分别为各标志点附近区域所受的x，y和z方向力
-        F = frame.get('3D_Forces')
-        
-        # 获得三维合力
-        # Fr矩阵为1x3矩阵，3列分别为x，y和z方向合力
-        Fr = frame.get('3D_ResultantForce')
-
-        # 获得三维合力矩
-        # Mr矩阵为1x3矩阵，3列分别为x，y和z方向合力矩
-        Mr = frame.get('3D_ResultantMoment')
-
-    # 创建Sensor实例，设置回调函数为上面写好的Tac3DRecvCallback，设置UDP接收端口为9988
-    tac3d = Sensor(recvCallback=Tac3DRecvCallback, port=9988)
-
-    # 等待Tac3D-Desktop端启动传感器并建立连接
-    tac3d.waitForFrame()
-    
-    time.sleep(5) # 5s
-
-    # 发送一次校准信号（应确保校准时传感器未与任何物体接触！否则会输出错误的数据！）
-    tac3d.calibrate(SN)
-
-    time.sleep(5) #5s
-
-    # 获取frame的另一种方式：通过getFrame获取缓存队列中的frame
-    frame = tac3d.getFrame()
-    if not frame is None:
-        print(frame['SN'])
-
-    time.sleep(5) #5s
-
-    # # 发送一次关闭传感器的信号（不建议使用）
-    # tac3d.quitSensor(SN)
-
-
-
-
 

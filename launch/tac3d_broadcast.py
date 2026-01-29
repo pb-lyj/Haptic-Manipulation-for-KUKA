@@ -25,18 +25,18 @@ def generate_launch_description():
         # 启动 Tac3D 后端服务进程（C++运行库）
         ExecuteProcess(
             cmd=[
-                './Tac3D', '-c', 'config/A1-0041L', '-d', '2', '-i', '127.0.0.1', '-p', '9988'
+                './Tac3D', '-c', 'config/DL1-GWM0072', '-d', '2', '-i', '127.0.0.1', '-p', '9988'
             ],
-            cwd='/home/lyj/robot_space_2/ros2_driver_layer/src/Tac3D-v3.1.3-linux',
+            cwd='/home/lyj/robot_space_2/ros2_driver_layer/src/Tac3D-SDK-v3.3.0/Tac3D-Core',
             shell=True,
             output='screen'
         ),
         
         ExecuteProcess(
             cmd=[
-                './Tac3D', '-c', 'config/A1-0040R', '-d', '4', '-i', '127.0.0.1', '-p', '9989'
+                './Tac3D', '-c', 'config/DL1-GWM0070', '-d', '4', '-i', '127.0.0.1', '-p', '9989'
             ],
-            cwd='/home/lyj/robot_space_2/ros2_driver_layer/src/Tac3D-v3.1.3-linux',
+            cwd='/home/lyj/robot_space_2/ros2_driver_layer/src/Tac3D-SDK-v3.3.0/Tac3D-Core',
             shell=True,
             output='screen'
         ),

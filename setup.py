@@ -48,12 +48,19 @@ setup(
             
             'test_force = haptic.test_force:main',
 
-            'reset = haptic.reset:main',
-            "execute = haptic.execute:main",
-            'lstm = haptic.lstm_policy:main',
-            'cartesian_controller = haptic.cartesian_controller:main',
+            'reset = haptic.reset:main',  # 重置机械臂到初始位置节点
+            "execute = haptic.execute:main",  # 废弃执行器节点
+            
+            'cartesian_controller = haptic.cartesian_controller:main',  # 笛卡尔控制器节点
+            'kb_c = haptic.keyboard_control:main',  # 键盘控制节点
+
+            'lstm = haptic.lstm_policy:main',  # lstm策略节点（当前环境）
             'lstm_test = haptic.lstm_test:main',
-            'kb_c = haptic.keyboard_control:main',
+
+            'act_bridge = haptic.act_bridge:main',  # ACT桥接节点（ZMQ客户端-act_py38环境）
+            'dp_bridge = haptic.dp_bridge:main',  # DP桥接节点（ZMQ客户端-触觉图像）
+            'dp_f_bridge = haptic.dp_f_bridge:main',  # DP合力桥接节点（ZMQ客户端-合力数据）
+            'mock_data = haptic.mock_data_publisher:main',  # 模拟数据发布器（测试用）
         ],
     },
 )

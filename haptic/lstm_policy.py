@@ -46,6 +46,7 @@ class LSTMPolicyNode(Node):
         super().__init__('lstm_policy_node')
         
         # 模型路径配置
+        self.encoder_model_path = '/home/lyj/robot_space_2/ros2_driver_layer/src/haptic/haptic/models/cnn_ae/best_model.pt'
         self.model_dir = os.path.join(os.path.dirname(__file__), 'models', 'feature_lstm')
         self.model_path = os.path.join(self.model_dir, 'best_model.pt')
         self.config_path = os.path.join(self.model_dir, 'config.yaml')
@@ -112,49 +113,45 @@ class LSTMPolicyNode(Node):
     
     def _load_config(self):
         """加载配置文件"""
-        try:
-            with open(self.config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            
-            # 提取关键配置
-            self.config = {
-                'model': config['model']['value'],
-                'data': config['data']['value'],
-            }
-            
-            # 归一化参数 - 从computed_normalization_params中读取
-            computed_norm = config.get('computed_normalization_params', {}).get('value', {})
-            
-            # 如果computed参数不存在,尝试从data.normalization_config读取
-            if not computed_norm:
-                computed_norm = self.config['data'].get('normalization_config', {})
-            
-            # 构建归一化参数字典(兼容原有代码结构)
-            self.norm_params = {
-                'forces': {
-                    'method': computed_norm.get('forces', {}).get('method', 'zscore'),
-                    'params': {
-                        'mean': computed_norm.get('forces', {}).get('params', {}).get('mean', 0.0),
-                        'std': computed_norm.get('forces', {}).get('params', {}).get('std', 1.0),
-                    }
-                },
-                'action': {
-                    'method': computed_norm.get('actions', {}).get('method', 'zscore'),
-                    'params': {
-                        'mean': computed_norm.get('actions', {}).get('params', {}).get('mean', 0.0),
-                        'std': computed_norm.get('actions', {}).get('params', {}).get('std', 1.0),
-                    }
+        with open(self.config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # 提取关键配置
+        self.config = {
+            'model': config['model']['value'],
+            'data': config['data']['value'],
+        }
+        
+        # 归一化参数 - 从computed_normalization_params中读取
+        computed_norm = config.get('computed_normalization_params', {}).get('value', {})
+        
+        # 如果computed参数不存在,尝试从data.normalization_config读取
+        if not computed_norm:
+            computed_norm = self.config['data'].get('normalization_config', {})
+        
+        # 构建归一化参数字典(兼容原有代码结构)
+        self.norm_params = {
+            'forces': {
+                'method': computed_norm.get('forces', {}).get('method', 'zscore'),
+                'params': {
+                    'mean': computed_norm.get('forces', {}).get('params', {}).get('mean', 0.0),
+                    'std': computed_norm.get('forces', {}).get('params', {}).get('std', 1.0),
+                }
+            },
+            'action': {
+                'method': computed_norm.get('actions', {}).get('method', 'zscore'),
+                'params': {
+                    'mean': computed_norm.get('actions', {}).get('params', {}).get('mean', 0.0),
+                    'std': computed_norm.get('actions', {}).get('params', {}).get('std', 1.0),
                 }
             }
+        }
+        
+        self.get_logger().info("配置文件加载成功")
+        self.get_logger().info(f"模型配置: {self.config['model']}")
+        self.get_logger().info(f"归一化参数 - forces: mean={self.norm_params['forces']['params']['mean']:.6f}, std={self.norm_params['forces']['params']['std']:.6f}")
+        self.get_logger().info(f"归一化参数 - action: mean={self.norm_params['action']['params']['mean']:.6f}, std={self.norm_params['action']['params']['std']:.6f}")
             
-            self.get_logger().info("配置文件加载成功")
-            self.get_logger().info(f"模型配置: {self.config['model']}")
-            self.get_logger().info(f"归一化参数 - forces: mean={self.norm_params['forces']['params']['mean']:.6f}, std={self.norm_params['forces']['params']['std']:.6f}")
-            self.get_logger().info(f"归一化参数 - action: mean={self.norm_params['action']['params']['mean']:.6f}, std={self.norm_params['action']['params']['std']:.6f}")
-            
-        except Exception as e:
-            self.get_logger().error(f"加载配置文件失败: {e}")
-            raise
     
     def _load_model(self):
         """加载训练好的LSTM模型"""
@@ -163,7 +160,7 @@ class LSTMPolicyNode(Node):
             model_config = self.config['model']
             
             # 使用硬编码的绝对路径指向源码目录的CNN编码器
-            cnn_encoder_path = '/home/lyj/robot_space_2/ros2_driver_layer/src/haptic/haptic/models/cnn_ae/best_model.pt'
+            cnn_encoder_path = self.encoder_model_path
             
             self.model = TactilePolicyFeatureLSTM(
                 feature_dim=model_config['feature_dim'],
@@ -357,24 +354,21 @@ class LSTMPolicyNode(Node):
             except Exception as e:
                 self.get_logger().error(f"推理过程中发生错误: {e}")
     
-    def _publish_pose_command(self, final_pose_xyz, delta_xyz, delta_xyz_scaled):
+    def _publish_pose_command(self, final_pose_xyz):
         """发布最终位姿命令到/ab_action"""
-        try:
-            # 创建新的Pose消息
-            new_pose = Pose()
+        # 创建新的Pose消息
+        new_pose = Pose()
+        
+        # 发布处理后的最终位姿（绝对坐标XYZ）
+        new_pose.position.x = float(final_pose_xyz[0])
+        new_pose.position.y = float(final_pose_xyz[1])
+        new_pose.position.z = float(final_pose_xyz[2])
+        # 锁定姿态为 (x=0, y=1, z=0, w=0)
+        new_pose.orientation = self.target_orientation
+        
+        # 发布到/ab_action话题（下一个节点会做预处理）
+        self.pose_publisher.publish(new_pose)
             
-            # 使用放大增量后的最终位姿
-            new_pose.position.x = float(final_pose_xyz[0])
-            new_pose.position.y = float(final_pose_xyz[1])
-            new_pose.position.z = float(final_pose_xyz[2])
-            # 锁定姿态为 (x=0, y=1, z=0, w=0)
-            new_pose.orientation = self.target_orientation
-            
-            # 发布到/ab_action话题（下一个节点会做预处理）
-            self.pose_publisher.publish(new_pose)
-            
-        except Exception as e:
-            self.get_logger().error(f"发布Pose命令时发生错误: {e}")
     
     def destroy_node(self):
         """销毁节点"""

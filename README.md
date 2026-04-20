@@ -1,144 +1,206 @@
-# haptic  ros2 package
+# 🖐️ haptic (ROS 2)
 
-This ROS package is designed for tactile robotics experiments on a KUKA robot. 
-# Dependence
-Its main dependencies include:
-- ubuntu 24.04
-- ros2-jazzy
-- python 3.12
+ROS 2 package for **KUKA LBR + Tac3D tactile sensors**, built for:
+- Human teaching and tactile data collection
+- Tactile/force data broadcasting and synchronized logging
+- Policy‑driven Cartesian pose control with safety thresholds
 
-- FRI
-- Gazebo
-	```
-	sudo apt update
-	sudo apt install ros-jazzy-gz-gazebo
-	sudo apt install ros-jazzy-ros-gz-sim
-	sudo apt install ros-jazzy-ros-gz
-	```
-- LBR
+---
 
-	https://github.com/lbr-stack/lbr_fri_ros2_stack
+## ✨ Key Features
 
-# Function
-## Connect KUKA
+- 🤖 **KUKA LBR integration** (based on lbr_fri_ros2_stack)
+- 🧠 **Tac3D dual‑sensor publishers** (left/right)
+  - 3D positions / displacements / forces (sensor_msgs/Image, 32FC3)
+  - resultant force / resultant moment (geometry_msgs/Vector3)
+- 🗂️ **Data logging**
+  - dataset_recorder: multi‑topic raw text logging with timestamps
+  - dataset_recorder_h5: fixed‑rate sampling into HDF5
+- 🎯 **Cartesian controller** (cartesian_controller)
+  - accepts policy pose targets
+  - interpolation rate limiting + workspace clipping + force/moment limits
+- 🔁 **One‑shot launch flow** (launch/teach_prepare.py)
+  - starts admittance control, Tac3D SDK, sensor ROS nodes, optional reset
 
-reference:https://lbr-stack.readthedocs.io/en/latest/lbr_fri_ros2_stack/lbr_demos/lbr_demos_advanced_py/doc/lbr_demos_advanced_py.html
+---
 
-1. control with human (dataset record)
+## 🧱 Requirements
 
-Smart PAD(Hardware Admittance):
+- Ubuntu 24.04
+- ROS 2 Jazzy
+- Python 3.12
+- KUKA FRI + LBR ROS 2 driver
+  - https://github.com/lbr-stack/lbr_fri_ros2_stack
+
+Optional simulation dependency (Gazebo):
+
+```bash
+sudo apt update
+sudo apt install ros-jazzy-gz-gazebo
+sudo apt install ros-jazzy-ros-gz-sim
+sudo apt install ros-jazzy-ros-gz
 ```
-10 -> 172.31.1.151 	-> JOINT_IMPEDANCE_CONTROL -> POSITION
-			-> ###_IMPEDANCE_CONTROL
-		# depend on do you need impedance
+
+---
+
+## 🚀 Quick Start
+
+> ⚠️ **Safety Notice**
+> 
+> For real robot motion, make sure E‑Stop is available, the workspace is clear, and the initial pose is safe.
+
+### 1) Build Workspace
+
+Run at the ROS 2 workspace root:
+
+```bash
+colcon build --packages-select haptic
+source install/setup.bash
 ```
 
+### 2) Tac3D Sensor Setup
+
+**2.1 Check device IDs**
+
+```bash
+v4l2-ctl --list-devices
 ```
+
+> 💡 Device IDs may change with USB order; verify after each power cycle.
+
+**2.2 Start Tac3D SDK**
+
+```bash
+./Tac3D -c config/<sensor_serial> -d <device_id> -i 127.0.0.1 -p <port>
+```
+
+Parameters:
+- <sensor_serial>: e.g. A1-0001R
+- <device_id>: e.g. 0, 1
+- <port>: left 9988, right 9989
+
+**2.3 Start ROS publishers**
+
+```bash
+ros2 run haptic tac3d_l
+ros2 run haptic tac3d_r
+```
+
+### 3) Connect KUKA (Two Common Modes)
+
+#### A. Human Teach / Recording (Admittance)
+
+SmartPAD:
+
+JOINT_IMPEDANCE_CONTROL -> POSITION (choose impedance mode as needed)
+
+```bash
 ros2 launch lbr_bringup hardware.launch.py \
-    ctrl:=admittance_controller \
-    model:=iiwa14 # [iiwa7, iiwa14, med7, med14]
+  ctrl:=admittance_controller \
+  model:=iiwa14
 ```
 
-:red_circle: Executing this command may cause the robotic arm to enter impedance mode immediately, you need to control its Initial posture.
+#### B. Program Control (Joint Position)
 
-This will start the robotic arm information broadcast at the same time.
+SmartPAD:
 
-2. control with program (joint position or cartesian)
+POSITION_CONTROL -> POSITION
 
-Smart PAD:
-```
-10 -> 172.31.1.151 	-> POSITION_CONTROL -> POSITION
-```
-
-```
-	ros2 launch lbr_bringup hardware.launch.py \
-    ctrl:=lbr_joint_position_command_controller \
-    model:=iiwa14
+```bash
+ros2 launch lbr_bringup hardware.launch.py \
+  ctrl:=lbr_joint_position_command_controller \
+  model:=iiwa14
 ```
 
-- It will lead to the joint position control mode, if you want to control in Cartesian mode, please run the following code in another terminal:
+If Cartesian pose interface is needed, run in another terminal:
 
-```
-ros2 run lbr_demos_advanced_cpp pose_control --ros-args \
-    -r __ns:=/lbr
-```
-
-
-## Robotic arm movement
-
-- Moving the robotic arm to its original position
-
-```
-	ros2 run haptic reset
+```bash
+ros2 run lbr_demos_advanced_cpp pose_control --ros-args -r __ns:=/lbr
 ```
 
-- Using an XYZ incremental motion robotic arm (keeping the end effector vertically downward)
+### 4) Data Recording
 
-```
-ros2 run haptic cartesian_controller  # Start the interpolation controller
-```
+**4.1 Text logging (all topics)**
 
-```
-./src/haptic/haptic down.sh X Y Z  # Increment(m)
-```
-
-## Tac3D Sensor
-
-- Confirm the Serial number of Sensor
-
-	:black_circle: The camera serial number may be related to the time and location of the USB device plugged in, and we recommend that you check it in after it is plugged in
-	```
-	v4l2-ctl --list-devices
-	```
-- Start the SDK
-	```
-	./Tac3D -c config/sensor_serial_number -d serial_number -i 127.0.0.1 -p port
-	```
-	- Sensor serial number : eg. A1-0001R
-	- Serial_number : eg. 0 1 
-	- Port : Set one , default = 9988(left), 9989(right)
-
-- Sensor information broadcasting Node
-	```
-	ros2 run haptic tac3d_l
-	```
-
-	```
-	ros2 run haptic tac3d_r
-	```
-
-## Human Teach and Data record
-
-After the robotic arm is connected and the tactile sensor is activated, you can run this file to record all the data they broadcast.
-
-```
+```bash
 ros2 run haptic dataset_recorder
 ```
 
-## *Launch all of the above procedures
+Output directory (auto‑created unique subfolder):
 
-1. connect the robot
+`training_data/dataset_recorder/<timestamp_pid_uuid>/`
 
-```
-ros2 launch haptic teach_record.py
-```
-With the hand controller, this command will connect the robotic arm in wrench mode
-- please wait for the haptic sensor to be calibrated
-- Assist the robotic arm to cope with the remaining dead weight compensation error
+**4.2 HDF5 logging (fixed‑rate sampling)**
 
-- Using Java native impedance here, we set a high three-axis rotational impedance in the experiment in July 2025, with a certain z-axis impedance and an XY impedance of almost 0 to facilitate our on-plane jack task
-
-2. start data recording
-
-```
-ros2 run haptic dataset_recorder
+```bash
+ros2 run haptic dataset_recorder_h5
 ```
 
-That will start data recording immediately.
-- The specific type and format of the recorded data can be viewed in `data_recorder_improved.py`.
-- The txt file contains the raw data and the timestamp when the data arrived at the host computer
+Output file:
 
-获取末端状态：
+`training_data/h5_datasets/dataset_<timestamp_pid_uuid>.h5`
+
+---
+
+## 🕹️ Robot Control and Debug
+
+### Reset to initial joint pose
+
+```bash
+ros2 run haptic reset
 ```
-ros2 run tf2_ros tf2_echo world lbr_link_ee
+
+### Start Cartesian controller (policy bridge)
+
+```bash
+ros2 run haptic cartesian_controller
 ```
+
+The controller subscribes to /ab_action and publishes to /lbr/command/pose.
+
+---
+
+### ⚡ One‑shot teaching prep flow
+
+*Currently limited due to blocking bringup.
+
+This package provides an integrated launch file:
+
+```bash
+ros2 launch haptic teach_prepare.py
+```
+
+Optional parameter (whether to run reset):
+
+```bash
+ros2 launch haptic teach_prepare.py reset:=true
+ros2 launch haptic teach_prepare.py reset:=false
+```
+
+This flow starts, in order:
+- Admittance control process
+- Tac3D SDK services (left/right)
+- tac3d_l / tac3d_r nodes
+- Optional reset
+
+---
+
+## 📁 Key Files
+
+- haptic/tac3d_l.py / haptic/tac3d_r.py: Tac3D data publishers
+- haptic/dataset_recorder.py: text data logger
+- haptic/dataset_recorder_h5.py: HDF5 logger
+- haptic/cartesian_controller.py: Cartesian interpolation & safety
+- haptic/reset.py: reset to initial pose
+- launch/teach_prepare.py: one‑shot teaching prep
+
+---
+
+## 📚 References
+
+- LBR documentation (advanced demos):
+  https://lbr-stack.readthedocs.io/en/latest/lbr_fri_ros2_stack/lbr_demos/lbr_demos_advanced_py/doc/lbr_demos_advanced_py.html
+
+---
+
+If this project helps you, feel free to ⭐️ Star.
